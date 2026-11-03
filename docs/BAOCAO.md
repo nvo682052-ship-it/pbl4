@@ -8,7 +8,9 @@ Stack: **C# .NET 8 + WinForms + SQLite**
 
 ## Chuong 1. Tong quan Windows Thread Pool va Overlapped I/O
 
-Windows Thread Pool giup ung dung thuc thi nhieu tac vu ngan hoac I/O-bound ma khong can tao thread thu cong. Trong project, moi segment download duoc dieu phoi bang `Task.Run`, su dung scheduler cua .NET ThreadPool. `SemaphoreSlim` gioi han so segment chay dong thoi de tranh qua tai CPU, socket, RAM va disk.
+Windows Thread Pool giup ung dung thuc thi nhieu tac vu ngan hoac I/O-bound ma khong can tao thread thu cong. Trong project, cac worker duoc dieu phoi bang `Task.Run`, su dung scheduler cua .NET ThreadPool. `SemaphoreSlim` gioi han so worker chay dong thoi theo gia tri nguoi dung chon.
+
+De can bang tai, engine chia file thanh toi da bon chunk cho moi worker (khi co tu hai worker). Cac chunk duoc dua vao `ConcurrentQueue`; moi worker lay chunk tiep theo sau khi hoan thanh chunk hien tai. Vi vay worker nhanh hon co the xu ly them chunk dang cho, thay vi ket thuc som trong khi worker khac van con nhieu phan viec. Cac request Range van ghi vao offset rieng nen co the ghi song song an toan.
 
 Overlapped I/O la co che I/O bat dong bo cua Windows. File duoc mo voi `FileOptions.Asynchronous | FileOptions.RandomAccess`, sau do ghi bang `RandomAccess.WriteAsync` theo offset. Cach nay giup thread giao viec I/O cho kernel thay vi block UI thread khi ghi file lon.
 
@@ -49,7 +51,7 @@ Ung dung la desktop local app. Khong can web public, khong can server trung gian
 | Networking | `src/Networking/HttpRangeClient.cs` | HTTP Range |
 | OSIntegration | `src/OSIntegration/SafeFileWriter.cs` | Overlapped I/O writer |
 | Persistence | `src/Persistence/SqliteDownloadRepository.cs` | Resume metadata |
-| Benchmark | `src/Benchmark/Program.cs` | So sanh 1/4/8 segment |
+| Benchmark | `src/Benchmark/Program.cs` | So sanh 1/4/8 worker |
 
 Chay benchmark:
 

@@ -282,8 +282,8 @@ public sealed class MainForm : Form
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Time", DataPropertyName = nameof(DownloadItemViewModel.ElapsedText), Width = 90 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Speed", DataPropertyName = nameof(DownloadItemViewModel.SpeedText), Width = 110 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Active", DataPropertyName = nameof(DownloadItemViewModel.ActiveSegments), Width = 80 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Segments", DataPropertyName = nameof(DownloadItemViewModel.SegmentCount), Width = 80 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Threads", DataPropertyName = nameof(DownloadItemViewModel.ThreadStatusText), Width = 280 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Chunks", DataPropertyName = nameof(DownloadItemViewModel.SegmentCount), Width = 80 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Work queue", DataPropertyName = nameof(DownloadItemViewModel.ThreadStatusText), Width = 180 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Message", DataPropertyName = nameof(DownloadItemViewModel.Message), AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
     }
 
@@ -475,7 +475,14 @@ public sealed class MainForm : Form
             State = job.State.ToString(),
             SegmentCount = job.Segments.Count,
             ActiveSegments = 0,
-            ThreadStatusText = FormatInitialSegmentStatus(job.Segments),
+            ThreadStatusText = DownloadItemViewModel.FormatSegmentStatus(job.Segments
+                .Select(segment => new SegmentProgressSnapshot(
+                    segment.Index,
+                    segment.DownloadedBytes,
+                    segment.Length,
+                    segment.Length <= 0 ? 0 : segment.DownloadedBytes * 100.0 / segment.Length,
+                    segment.State))
+                .ToArray()),
             Message = ""
         };
 
@@ -549,21 +556,6 @@ public sealed class MainForm : Form
             return true;
         }
     }
-
-    private static string FormatInitialSegmentStatus(IReadOnlyList<DownloadSegment> segments)
-        => string.Join(" | ", segments.Select(segment =>
-        {
-            var state = segment.State switch
-            {
-                SegmentState.Running => "R",
-                SegmentState.Completed => "OK",
-                SegmentState.Failed => "ERR",
-                _ => "..."
-            };
-
-            var percent = segment.Length <= 0 ? 0 : segment.DownloadedBytes * 100.0 / segment.Length;
-            return $"#{segment.Index + 1} {state} {percent:0}%";
-        }));
 
     private void UpdateCommandButtons()
     {

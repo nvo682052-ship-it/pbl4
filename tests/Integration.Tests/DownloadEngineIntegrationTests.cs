@@ -20,8 +20,9 @@ public sealed class DownloadEngineIntegrationTests
         var saved = await repository.FindAsync(job.Id);
 
         Assert.NotNull(saved);
-        Assert.Equal(4, saved.Segments.Count);
-        Assert.All(saved.Segments, segment => Assert.Equal(4, segment.Length));
+        Assert.Equal(4, saved.RequestedConcurrency);
+        Assert.Equal(16, saved.Segments.Count);
+        Assert.All(saved.Segments, segment => Assert.Equal(1, segment.Length));
     }
 
     [Fact]
@@ -55,7 +56,7 @@ public sealed class DownloadEngineIntegrationTests
         TryDelete(outputPath);
 
         Assert.Equal(content, downloaded);
-        Assert.Equal(4, http.RequestedRanges.Count);
+        Assert.Equal(16, http.RequestedRanges.Count);
     }
 
     [Fact]
@@ -85,6 +86,51 @@ public sealed class DownloadEngineIntegrationTests
 
         Assert.Contains(http.RequestedRanges, range => range.Start == 8 && range.End == 11);
         Assert.DoesNotContain(http.RequestedRanges, range => range.Start == 0);
+    }
+
+    [Fact]
+    public async Task StartAsync_ReusesWorkerForNextChunkWhileAnotherChunkIsStillRunning()
+    {
+        var slowChunkStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var laterChunkStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSlowChunk = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var http = new FakeHttpRangeClient(
+            new byte[80],
+            beforeDownload: async (start, _, cancellationToken) =>
+            {
+                if (start == 0)
+                {
+                    slowChunkStarted.TrySetResult();
+                    await releaseSlowChunk.Task.WaitAsync(cancellationToken);
+                }
+                else if (start >= 20)
+                {
+                    laterChunkStarted.TrySetResult();
+                }
+            });
+        var repository = new InMemoryDownloadRepository();
+        var engine = new DownloadEngine(http, new SegmentPlanner(), repository, new ProgressReporter());
+        var job = await engine.CreateAsync(new CreateDownloadRequest(
+            new Uri("https://example.test/file.bin"),
+            CreateTempOutputPath(),
+            SegmentCount: 2));
+
+        Assert.Equal(2, job.RequestedConcurrency);
+        Assert.Equal(8, job.Segments.Count);
+
+        var download = engine.StartAsync(job.Id);
+        try
+        {
+            await slowChunkStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await laterChunkStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            releaseSlowChunk.TrySetResult();
+        }
+
+        await download;
+        TryDelete(job.OutputPath);
     }
 
     private static DownloadEngine CreateEngine(

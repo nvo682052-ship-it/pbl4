@@ -69,15 +69,16 @@ sequenceDiagram
     participant DB as SQLite
     participant Server as HTTP Server
 
-    UI->>Engine: CreateAsync(url, outputPath, segmentCount)
+    UI->>Engine: CreateAsync(url, outputPath, workerCount)
     Engine->>HTTP: HEAD probe
     HTTP->>Server: HEAD /file
     Server-->>HTTP: Accept-Ranges + Content-Length
-    Engine->>DB: Save job + segments
+    Engine->>DB: Save job + chunks (up to 4x workers)
     Engine-->>UI: jobId
     UI->>Engine: StartAsync(jobId)
-    loop moi segment
-        Engine->>TP: RunAsync(segmentWorker)
+    loop moi worker
+        Engine->>TP: RunAsync(workerLoop)
+        TP->>TP: Lay chunk tiep theo tu ConcurrentQueue
         TP->>HTTP: GET Range bytes=start-end
         HTTP->>Server: Range request
         Server-->>HTTP: 206 Partial Content
@@ -87,13 +88,16 @@ sequenceDiagram
     end
 ```
 
+Moi job giu so worker toi da theo gia tri Threads nguoi dung chon. Khi co tu 2 worker tro len, engine tao toi da 4 chunk cho moi worker. Worker nao tai xong truoc se lay chunk con lai tiep theo; mot worker khong bi gan cung vao mot segment lon trong suot job.
+
 ## 5. Mapping yeu cau hoc thuat
 
 | Yeu cau | Code |
 | --- | --- |
 | Windows Thread Pool | `OSIntegration/ThreadPoolManager.cs`, `Core/DownloadEngine.cs` |
 | Overlapped I/O | `OSIntegration/SafeFileWriter.cs` dung `FileOptions.Asynchronous` va `RandomAccess.WriteAsync` |
-| Gioi han luong | `SemaphoreSlim` trong `ThreadPoolManager` |
+| Gioi han luong | So worker co dinh theo job va `SemaphoreSlim` trong `ThreadPoolManager` |
+| Can bang tai | `ConcurrentQueue<DownloadSegment>` trong `DownloadEngine`; worker lay chunk tiep theo khi hoan thanh |
 | Critical section | `DownloadJob.TransitionTo`, `SafeFileWriter.WriteAsync`, `SqliteDownloadRepository` |
 | Deadlock prevention | Timeout khi doi semaphore/lock, khong giu lock khi network I/O |
 | HTTP Range | `Networking/HttpRangeClient.cs`, `HttpRangeParser.cs` |

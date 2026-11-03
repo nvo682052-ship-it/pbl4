@@ -190,24 +190,17 @@ public sealed class DownloadItemViewModel : INotifyPropertyChanged
         return $"{value:0.##} {units[unit]}";
     }
 
-    private static string FormatSegmentStatus(IReadOnlyList<SegmentProgressSnapshot> segments)
+    public static string FormatSegmentStatus(IReadOnlyList<SegmentProgressSnapshot> segments)
     {
         if (segments.Count == 0)
         {
             return "";
         }
 
-        return string.Join(" | ", segments.Select(segment =>
-        {
-            var state = segment.State switch
-            {
-                SegmentState.Running => "R",
-                SegmentState.Completed => "OK",
-                SegmentState.Failed => "ERR",
-                _ => "..."
-            };
-
-            return $"#{segment.Index + 1} {state} {segment.ProgressPercent:0}%";
-        }));
+        var active = segments.Count(segment => segment.State == SegmentState.Running);
+        var completed = segments.Count(segment => segment.State == SegmentState.Completed);
+        var failed = segments.Count(segment => segment.State == SegmentState.Failed);
+        var summary = $"{active} active · {completed}/{segments.Count} done";
+        return failed == 0 ? summary : $"{summary} · {failed} failed";
     }
 }

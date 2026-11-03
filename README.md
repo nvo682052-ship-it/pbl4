@@ -17,6 +17,7 @@ Huong trien khai: **WinForms desktop app**, tai truc tiep tren may nguoi dung. K
 - HTTP/HTTPS segmented download bang `Range: bytes=start-end`.
 - Windows Thread Pool qua `Task.Run` va async task scheduling.
 - Gioi han song song bang `SemaphoreSlim`.
+- Phan phoi work dong: worker hoan thanh chunk se lay chunk tiep theo tu hang doi, toi da bang so Threads da chon.
 - Overlapped I/O qua `FileOptions.Asynchronous` va `RandomAccess.WriteAsync`.
 - Pause/resume/cancel an toan bang `.part` file va SQLite metadata.
 - Retry exponential backoff va token bucket bandwidth throttle.
@@ -33,7 +34,7 @@ pbl4/
 |   |-- OSIntegration/    ThreadPool, Overlapped I/O writer, named pipe
 |   |-- Persistence/      SQLite repository va resume metadata
 |   |-- UI/               WinForms desktop app
-|   `-- Benchmark/        Benchmark local 1/4/8 segment
+|   `-- Benchmark/        Benchmark local 1/4/8 worker
 |-- tests/
 |   |-- Core.Tests/
 |   |-- Networking.Tests/
@@ -96,6 +97,8 @@ $env:PBL4_SQLSERVER_CONNECTION_STRING="Server=DESKTOP-K647TQ4;Database=pbl4_down
 ```
 
 ## Benchmark
+
+Benchmark so sanh 1, 4 va 8 worker. Khi co nhieu hon 1 worker, engine chia file thanh toi da 4 chunk cho moi worker; moi worker lay chunk tiep theo tu hang doi khi ranh.
 
 ```powershell
 .\scripts\benchmark.ps1 -Url "http://speedtest.tele2.net/100MB.zip"

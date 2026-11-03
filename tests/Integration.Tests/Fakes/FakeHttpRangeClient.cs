@@ -8,11 +8,16 @@ internal sealed class FakeHttpRangeClient : IHttpRangeClient
 {
     private readonly byte[] _content;
     private readonly bool _supportsRanges;
+    private readonly Func<long, long, CancellationToken, Task>? _beforeDownload;
 
-    public FakeHttpRangeClient(byte[] content, bool supportsRanges = true)
+    public FakeHttpRangeClient(
+        byte[] content,
+        bool supportsRanges = true,
+        Func<long, long, CancellationToken, Task>? beforeDownload = null)
     {
         _content = content;
         _supportsRanges = supportsRanges;
+        _beforeDownload = beforeDownload;
     }
 
     private readonly ConcurrentQueue<(long Start, long End)> _requestedRanges = new();
@@ -37,6 +42,11 @@ internal sealed class FakeHttpRangeClient : IHttpRangeClient
         CancellationToken cancellationToken = default)
     {
         _requestedRanges.Enqueue((start, end));
+        if (_beforeDownload is not null)
+        {
+            await _beforeDownload(start, end, cancellationToken);
+        }
+
         var length = (int)(end - start + 1);
         await destination.WriteAsync(_content.AsMemory((int)start, length), cancellationToken);
 

@@ -18,10 +18,10 @@ Directory.CreateDirectory(Path.Combine(outputDir, "downloads"));
 var csvPath = Path.Combine(outputDir, "benchmark.csv");
 var chartPath = Path.Combine(outputDir, "benchmark-chart.html");
 var dbPath = Path.Combine(outputDir, "benchmark.db");
-var segments = new[] { 1, 4, 8 };
+var workerCounts = new[] { 1, 4, 8 };
 var rows = new List<BenchmarkRow>();
 
-foreach (var segmentCount in segments)
+foreach (var workerCount in workerCounts)
 {
     var repository = new SqliteDownloadRepository(dbPath);
     await repository.InitializeAsync();
@@ -33,20 +33,20 @@ foreach (var segmentCount in segments)
         progressReporter,
         new DownloadEngineOptions { MaxConcurrency = 8, BufferSize = 1024 * 1024 });
 
-    var outputPath = Path.GetFullPath(Path.Combine(outputDir, "downloads", $"benchmark-{segmentCount}.bin"));
+    var outputPath = Path.GetFullPath(Path.Combine(outputDir, "downloads", $"benchmark-{workerCount}.bin"));
     DeleteIfExists(outputPath);
     DeleteIfExists(outputPath + ".part");
 
-    Console.WriteLine($"Benchmark {segmentCount} segment(s): {url}");
+    Console.WriteLine($"Benchmark {workerCount} worker(s): {url}");
     var stopwatch = Stopwatch.StartNew();
-    var job = await engine.CreateAsync(new CreateDownloadRequest(url, outputPath, segmentCount));
+    var job = await engine.CreateAsync(new CreateDownloadRequest(url, outputPath, workerCount));
     await engine.StartAsync(job.Id);
     stopwatch.Stop();
 
     var loaded = await engine.FindAsync(job.Id);
     var totalBytes = loaded?.TotalBytes ?? 0;
     var avgSpeed = stopwatch.Elapsed.TotalSeconds > 0 ? totalBytes / stopwatch.Elapsed.TotalSeconds : 0;
-    rows.Add(new BenchmarkRow(DateTimeOffset.UtcNow, url.ToString(), segmentCount, loaded?.State.ToString() ?? "Unknown", totalBytes, stopwatch.Elapsed.TotalSeconds, avgSpeed, outputPath));
+    rows.Add(new BenchmarkRow(DateTimeOffset.UtcNow, url.ToString(), workerCount, loaded?.State.ToString() ?? "Unknown", totalBytes, stopwatch.Elapsed.TotalSeconds, avgSpeed, outputPath));
 }
 
 await File.WriteAllLinesAsync(csvPath, BuildCsv(rows));
@@ -66,13 +66,13 @@ static void DeleteIfExists(string path)
 
 static IEnumerable<string> BuildCsv(IEnumerable<BenchmarkRow> rows)
 {
-    yield return "timestamp,url,segment_count,state,total_bytes,elapsed_seconds,avg_speed_bytes_per_second,output_path";
+    yield return "timestamp,url,worker_count,state,total_bytes,elapsed_seconds,avg_speed_bytes_per_second,output_path";
     foreach (var row in rows)
     {
         yield return string.Join(",", [
             row.Timestamp.ToString("O"),
             Escape(row.Url),
-            row.SegmentCount.ToString(),
+            row.WorkerCount.ToString(),
             row.State,
             row.TotalBytes.ToString(),
             Math.Round(row.ElapsedSeconds, 3).ToString(),
@@ -87,7 +87,7 @@ static string Escape(string value)
 
 static string BuildChartHtml(string url, IReadOnlyList<BenchmarkRow> rows)
 {
-    var labels = string.Join(",", rows.Select(row => $"'{row.SegmentCount} segment'"));
+    var labels = string.Join(",", rows.Select(row => $"'{row.WorkerCount} worker'"));
     var times = string.Join(",", rows.Select(row => Math.Round(row.ElapsedSeconds, 3)));
     var speeds = string.Join(",", rows.Select(row => Math.Round(row.AvgSpeedBytesPerSecond / 1048576, 2)));
 
@@ -130,7 +130,7 @@ static string BuildChartHtml(string url, IReadOnlyList<BenchmarkRow> rows)
 internal sealed record BenchmarkRow(
     DateTimeOffset Timestamp,
     string Url,
-    int SegmentCount,
+    int WorkerCount,
     string State,
     long TotalBytes,
     double ElapsedSeconds,
