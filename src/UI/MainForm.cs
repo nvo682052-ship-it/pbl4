@@ -122,7 +122,7 @@ public sealed class MainForm : Form
         inputPanel.Controls.Add(CreateLabeledControl("Threads", _segmentsInput), 2, 0);
         inputPanel.Controls.Add(CreateLabeledControl("Limit KB/s", _limitInput), 3, 0);
 
-        ConfigureButton(_startButton, "Tai xuong_nhanFix", async () => await StartAsync(), width: 112);
+        ConfigureButton(_startButton, "Tai", async () => await StartAsync(), width: 112);
         _startButton.Dock = DockStyle.Fill;
         _startButton.Height = 34;
         _startButton.Margin = new Padding(8, 28, 4, 8);

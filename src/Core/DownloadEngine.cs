@@ -58,36 +58,50 @@ public sealed class DownloadEngine
         Publish(job, 0, "Da tao download job.");
         return job;
     }
-
     public async Task StartAsync(Guid jobId, long? bandwidthLimitBytesPerSecond = null, CancellationToken cancellationToken = default)
     {
         var job = await LoadJobOrThrowAsync(jobId, cancellationToken);
-        if (job.State != DownloadState.Running)
-        {
-            job.TransitionTo(DownloadState.Running);
-            await _repository.UpdateJobStateAsync(job.Id, job.State, cancellationToken);
-        }
 
+        // Dang chay roi thi khong chay them lan nua (bam Resume 2 lan).
         var jobCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (!_runningJobs.TryAdd(job.Id, jobCts))
         {
+            jobCts.Dispose();
             return;
         }
 
         try
         {
+            if (job.State != DownloadState.Running)
+            {
+                job.TransitionTo(DownloadState.Running);
+                await _repository.UpdateJobStateAsync(job.Id, job.State, cancellationToken);
+            }
+
             await RunJobAsync(job, bandwidthLimitBytesPerSecond, jobCts.Token);
-        }
-        catch (OperationCanceledException) when (job.State == DownloadState.Paused)
-        {
-            Publish(job, 0, "Job da tam dung an toan.");
         }
         catch (OperationCanceledException)
         {
-            if (job.State != DownloadState.Canceled)
+            var latest = await _repository.FindAsync(job.Id, CancellationToken.None);
+
+            if (latest?.State == DownloadState.Canceled)
             {
-                job.TransitionTo(DownloadState.Paused);
-                await _repository.UpdateJobStateAsync(job.Id, job.State, CancellationToken.None);
+                if (!job.IsTerminal)
+                {
+                    job.TransitionTo(DownloadState.Canceled);
+                }
+
+                Publish(job, 0, "Job da bi huy.");
+            }
+            else
+            {
+                if (job.State == DownloadState.Running)
+                {
+                    job.TransitionTo(DownloadState.Paused);
+                    await _repository.UpdateJobStateAsync(job.Id, job.State, CancellationToken.None);
+                }
+
+                Publish(job, 0, "Job da tam dung an toan.");
             }
         }
         catch (Exception ex)
@@ -177,6 +191,11 @@ public sealed class DownloadEngine
                 .Where(segment => segment.State != SegmentState.Completed && segment.RemainingBytes > 0));
             var activeSegments = 0;
             var workerCount = Math.Min(job.RequestedConcurrency, _options.MaxConcurrency);
+
+            // Task luu tien do dinh ky: chi 1 task ghi DB, tranh nhieu luong cung ghi SQLite.
+            using var saverCts = new CancellationTokenSource();
+            var saverTask = SaveProgressPeriodicallyAsync(job, saverCts.Token);
+
             var workers = Enumerable.Range(0, workerCount)
                 .Select(_ => threadPool.RunAsync(async token =>
                 {
@@ -195,9 +214,19 @@ public sealed class DownloadEngine
                 }, cancellationToken))
                 .ToArray();
 
-            await Task.WhenAll(workers);
-            await writer.FlushAsync(cancellationToken);
-            isCompleted = job.Segments.All(segment => segment.State == SegmentState.Completed);
+            try
+            {
+                await Task.WhenAll(workers);
+                await writer.FlushAsync(cancellationToken);
+                isCompleted = job.Segments.All(segment => segment.State == SegmentState.Completed);
+            }
+            finally
+            {
+                // Dung task luu dinh ky, roi luu lan cuoi de pause/cancel/loi khong mat byte nao.
+                await saverCts.CancelAsync();
+                await saverTask;
+                await SaveUnfinishedSegmentsAsync(job);
+            }
         }
 
         if (isCompleted)
@@ -208,6 +237,41 @@ public sealed class DownloadEngine
             job.TransitionTo(DownloadState.Completed);
             await _repository.UpdateJobStateAsync(job.Id, DownloadState.Completed, cancellationToken);
             Publish(job, speedMeter.BytesPerSecond, "Download hoan tat.");
+        }
+    }
+    private async Task SaveProgressPeriodicallyAsync(DownloadJob job, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await SaveUnfinishedSegmentsAsync(job);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Binh thuong: RunJobAsync dung task nay khi job ket thuc.
+        }
+    }
+
+    private async Task SaveUnfinishedSegmentsAsync(DownloadJob job)
+    {
+        foreach (var segment in job.Segments)
+        {
+            if (segment.State == SegmentState.Completed || segment.DownloadedBytes == 0)
+            {
+                continue;
+            }
+
+            try
+            {
+                await _repository.UpdateSegmentAsync(job.Id, segment, CancellationToken.None);
+            }
+            catch (Exception)
+            {
+                // Luu tien do la best-effort: loi ghi DB khong duoc lam hong ca job dang tai.
+            }
         }
     }
 
