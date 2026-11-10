@@ -139,11 +139,7 @@ public sealed class HttpRangeClient : IHttpRangeClient, IDisposable
             throw new ArgumentOutOfRangeException(nameof(end), "end phai >= start.");
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url)
-        {
-            Version = _options.HttpVersion,
-            VersionPolicy = HttpVersionPolicy.RequestVersionOrLower
-        };
+        using var request = CreateRequest(HttpMethod.Get, url);
 
         // Day la minh hoa HTTP Range Request o tang ung dung:
         // client yeu cau server chi tra ve byte tu start den end.

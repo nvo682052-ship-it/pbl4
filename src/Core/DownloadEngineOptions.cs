@@ -6,6 +6,9 @@ public sealed class DownloadEngineOptions
 
     public int MaxConcurrency { get; init; } = 8;
 
+    // Tao nhieu work item hon worker de worker ranh co the nhan viec tiep theo.
+    public int WorkItemsPerWorker { get; init; } = 4;
+
     public int BufferSize { get; init; } = 1024 * 1024;
 
     public int MaxRetryAttempts { get; init; } = 8;

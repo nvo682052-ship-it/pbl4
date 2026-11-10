@@ -33,11 +33,14 @@ public sealed class DownloadEngine
     {
         var probe = await _httpClient.ProbeAsync(request.Url, cancellationToken);
         var totalBytes = probe.ContentLength ?? throw new InvalidOperationException("Server khong cung cap Content-Length.");
-        var segmentCount = probe.SupportsRanges
+        var workerCount = probe.SupportsRanges
             ? Math.Clamp(request.SegmentCount, 1, _options.MaxConcurrency)
             : 1;
+        var workItemCount = workerCount == 1
+            ? 1
+            : (int)Math.Min(totalBytes, (long)workerCount * Math.Max(1, _options.WorkItemsPerWorker));
 
-        var plannedSegments = _segmentPlanner.Plan(totalBytes, segmentCount);
+        var plannedSegments = _segmentPlanner.Plan(totalBytes, workItemCount);
         var segments = plannedSegments
             .Select(segment => new DownloadSegment(segment.Index, segment.Start, segment.End))
             .ToList();
@@ -49,7 +52,7 @@ public sealed class DownloadEngine
             totalBytes,
             segments,
             DownloadState.Pending,
-            segmentCount);
+            workerCount);
 
         await _repository.SaveAsync(job, cancellationToken);
         Publish(job, 0, "Da tao download job.");
@@ -170,29 +173,29 @@ public sealed class DownloadEngine
                 ? new TokenBucketRateLimiter(bandwidthLimitBytesPerSecond.Value)
                 : null;
 
+            var pendingSegments = new ConcurrentQueue<DownloadSegment>(job.Segments
+                .Where(segment => segment.State != SegmentState.Completed && segment.RemainingBytes > 0));
             var activeSegments = 0;
-            var tasks = job.Segments
-                .Where(segment => segment.State != SegmentState.Completed && segment.RemainingBytes > 0)
-                .Select(segment => threadPool.RunAsync(async token =>
+            var workerCount = Math.Min(job.RequestedConcurrency, _options.MaxConcurrency);
+            var workers = Enumerable.Range(0, workerCount)
+                .Select(_ => threadPool.RunAsync(async token =>
                 {
-                    if (segment.Index > 0)
+                    while (pendingSegments.TryDequeue(out var segment))
                     {
-                        await Task.Delay(TimeSpan.FromMilliseconds(segment.Index * 700), token);
-                    }
-
-                    Interlocked.Increment(ref activeSegments);
-                    try
-                    {
-                        await DownloadSegmentWithRetryAsync(job, segment, writer, limiter, speedMeter, () => activeSegments, token);
-                    }
-                    finally
-                    {
-                        Interlocked.Decrement(ref activeSegments);
+                        Interlocked.Increment(ref activeSegments);
+                        try
+                        {
+                            await DownloadSegmentWithRetryAsync(job, segment, writer, limiter, speedMeter, () => activeSegments, token);
+                        }
+                        finally
+                        {
+                            Interlocked.Decrement(ref activeSegments);
+                        }
                     }
                 }, cancellationToken))
                 .ToArray();
 
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(workers);
             await writer.FlushAsync(cancellationToken);
             isCompleted = job.Segments.All(segment => segment.State == SegmentState.Completed);
         }

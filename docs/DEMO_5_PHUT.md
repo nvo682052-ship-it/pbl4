@@ -26,7 +26,7 @@ Gioi thieu de tai:
 
 ### Phut 1:00 - 2:00
 
-Nhap URL file, output path, chon `Threads = 4` hoac `8`, bam `Tai`.
+Nhap URL file, output path, chon `Threads = 4` hoac `8`, bam `Tai`. Cot `Chunks` co the lon hon so Threads; vi du 4 worker co toi da 16 chunk nho.
 
 Noi:
 
@@ -42,11 +42,11 @@ Noi:
 
 ### Phut 3:00 - 4:00
 
-Mo `SafeFileWriter.cs` va `ThreadPoolManager.cs`.
+Mo `DownloadEngine.cs` va `ThreadPoolManager.cs`.
 
 Noi:
 
-> Segment worker chay tren ThreadPool. `SemaphoreSlim` gioi han song song. File duoc ghi bang `RandomAccess.WriteAsync` voi file handle async, day la Overlapped I/O tren Windows.
+> Mỗi worker lấy chunk từ hàng đợi. Tải xong một chunk thì worker đó lấy chunk còn lại tiếp theo, nên worker nhanh có thể xử lý thêm việc đang chờ. Số worker chạy đồng thời vẫn bị giới hạn theo lựa chọn Threads. File được ghi bằng `RandomAccess.WriteAsync` với file handle async, đây là Overlapped I/O trên Windows.
 
 ### Phut 4:00 - 5:00
 
@@ -58,7 +58,7 @@ Chay benchmark:
 
 Noi:
 
-> Benchmark so sanh 1, 4 va 8 segment. Nhieu segment co the nhanh hon, nhung qua nhieu segment se tang overhead socket, scheduling va disk I/O.
+> Benchmark so sanh 1, 4 va 8 worker. Chia chunk nhỏ hơn giúp cân bằng tải khi tốc độ từng request khác nhau; kết quả vẫn tùy server và mạng, vì quá nhiều request có thể tăng overhead hoặc bị giới hạn.
 
 ## 3. Cau hoi va tra loi mau
 
